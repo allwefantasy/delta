@@ -178,12 +178,15 @@ object DeltaTableUtils extends PredicateHelper
    * @param target the logical plan in which we replace the file index
    * @param fileIndex the new file index
    */
-  def replaceFileIndex(target: LogicalPlan, fileIndex: FileIndex): LogicalPlan = {
+  def replaceFileIndex(
+      target: LogicalPlan,
+      fileIndex: FileIndex): LogicalPlan = {
     target transform {
       case l @ LogicalRelation(hfsr: HadoopFsRelation, _, _, _) =>
         l.copy(relation = hfsr.copy(location = fileIndex)(hfsr.sparkSession))
     }
   }
+
 
   /**
    * Check if the given path contains time travel syntax with the `@`. If the path genuinely exists,

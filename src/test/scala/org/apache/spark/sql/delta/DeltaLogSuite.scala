@@ -26,7 +26,7 @@ import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql._
 import org.apache.spark.sql.test.SharedSQLContext
-import org.apache.spark.util._
+import org.apache.spark.util.Utils
 
 // scalastyle:off: removeFile
 class DeltaLogSuite extends QueryTest
@@ -51,6 +51,7 @@ class DeltaLogSuite extends QueryTest
 
     DeltaLog.clearCache()
     val log2 = DeltaLog(spark, new Path(tempDir.getCanonicalPath))
+    assert(log2.snapshot.version == log1.snapshot.version)
     assert(log2.snapshot.allFiles.count == 1)
   }
 

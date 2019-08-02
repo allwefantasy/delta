@@ -18,9 +18,9 @@ name := "delta-core"
 
 organization := "io.delta"
 
-scalaVersion := "2.11.12"
-
 crossScalaVersions := Seq("2.12.8", "2.11.12")
+
+scalaVersion := crossScalaVersions.value.head
 
 sparkVersion := "2.4.2"
 
@@ -33,19 +33,23 @@ libraryDependencies ++= Seq(
 
   // Test deps
   "org.scalatest" %% "scalatest" % "3.0.5" % "test",
+  "junit" % "junit" % "4.12" % "test",
+  "com.novocode" % "junit-interface" % "0.11" % "test",
   "org.apache.spark" %% "spark-catalyst" % sparkVersion.value % "test" classifier "tests",
   "org.apache.spark" %% "spark-core" % sparkVersion.value % "test" classifier "tests",
   "org.apache.spark" %% "spark-sql" % sparkVersion.value % "test" classifier "tests"
 )
 
-testOptions in Test += Tests.Argument("-oF")
+testOptions in Test += Tests.Argument("-oDF")
+
+testOptions in Test += Tests.Argument(TestFrameworks.JUnit, "-v", "-a")
 
 // Don't execute in parallel since we can't have multiple Sparks in the same JVM
 parallelExecution in Test := false
 
 scalacOptions ++= Seq("-target:jvm-1.8")
 
-javaOptions += "-Xmx3g"
+javaOptions += "-Xmx1024m"
 
 fork in Test := true
 
@@ -55,8 +59,13 @@ javaOptions in Test ++= Seq(
   "-Dspark.ui.showConsoleProgress=false",
   "-Dspark.databricks.delta.snapshotPartitions=2",
   "-Dspark.sql.shuffle.partitions=5",
-  "-Xmx2g"
+  "-Ddelta.log.cacheSize=3",
+  "-Xmx1024m"
 )
+
+/** ********************
+ * ScalaStyle settings *
+ * *********************/
 
 scalastyleConfig := baseDirectory.value / "scalastyle-config.xml"
 
@@ -71,6 +80,44 @@ lazy val testScalastyle = taskKey[Unit]("testScalastyle")
 testScalastyle := scalastyle.in(Test).toTask("").value
 
 (test in Test) := ((test in Test) dependsOn testScalastyle).value
+
+
+/*******************
+ * Unidoc settings *
+ *******************/
+
+enablePlugins(GenJavadocPlugin, JavaUnidocPlugin, ScalaUnidocPlugin)
+
+// Configure Scala unidoc
+scalacOptions in(ScalaUnidoc, unidoc) ++= Seq(
+  "-skip-packages", "org:com:io.delta.tables.execution",
+  "-doc-title", "Delta Lake " + version.value.replaceAll("-SNAPSHOT", "") + " ScalaDoc"
+)
+
+// Configure Java unidoc
+javacOptions in(JavaUnidoc, unidoc) := Seq(
+  "-public",
+  "-exclude", "org:com:io.delta.tables.execution",
+  "-windowtitle", "Delta Lake " + version.value.replaceAll("-SNAPSHOT", "") + " JavaDoc",
+  "-noqualifier", "java.lang",
+  "-tag", "return:X"
+)
+
+// Explicitly remove source files by package because these docs are not formatted correctly for Javadocs
+def ignoreUndocumentedPackages(packages: Seq[Seq[java.io.File]]): Seq[Seq[java.io.File]] = {
+  packages
+    .map(_.filterNot(_.getName.contains("$")))
+    .map(_.filterNot(_.getCanonicalPath.contains("io/delta/tables/execution")))
+    .map(_.filterNot(_.getCanonicalPath.contains("spark")))
+}
+
+unidocAllSources in(JavaUnidoc, unidoc) := {
+  ignoreUndocumentedPackages((unidocAllSources in(JavaUnidoc, unidoc)).value)
+}
+
+// Ensure unidoc is run with tests
+(test in Test) := ((test in Test) dependsOn unidoc.in(Compile)).value
+
 
 /***************************
  * Spark Packages settings *

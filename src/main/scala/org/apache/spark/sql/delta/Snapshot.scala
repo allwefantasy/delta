@@ -29,7 +29,6 @@ import org.apache.hadoop.fs.{FileSystem, Path}
 
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
-import org.apache.spark.sql.execution.datasources.{DataSource, FileFormat}
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType
@@ -110,11 +109,14 @@ class Snapshot(
       }
   }
 
-  val redactedPath =
+  def redactedPath: String =
     Utils.redact(spark.sessionState.conf.stringRedactionPattern, path.toUri.toString)
 
+  private val cachedState =
+    cacheDS(stateReconstruction, "Delta Table State #$version - $redactedPath")
+
   /** The current set of actions in this [[Snapshot]]. */
-  val state = stateReconstruction.rddCache(s"Delta Table State #$version - $redactedPath")
+  def state: Dataset[SingleAction] = cachedState.getDS
 
   // Force materialization of the cache and collect the basics to the driver for fast access.
   // Here we need to bypass the ACL checks for SELECT anonymous function permissions.
@@ -135,6 +137,8 @@ class Snapshot(
         count($"txn") as "numOfSetTransactions")
       .as[State](stateEncoder)}
       .first
+
+  deltaLog.protocolRead(protocol)
 
   /** A map to look up transaction version by appId. */
   lazy val transactions = setTransactions.map(t => t.appId -> t.version).toMap

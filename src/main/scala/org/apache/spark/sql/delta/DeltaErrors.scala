@@ -16,6 +16,7 @@
 
 package org.apache.spark.sql.delta
 
+// scalastyle:off import.ordering.noEmptyLine
 import java.io.FileNotFoundException
 import java.util.ConcurrentModificationException
 
@@ -80,6 +81,14 @@ object DeltaErrors
 
   def formatSchema(schema: StructType): String = schema.treeString
 
+  def analysisException(
+      msg: String,
+      line: Option[Int] = None,
+      startPosition: Option[Int] = None,
+      plan: Option[LogicalPlan] = None,
+      cause: Option[Throwable] = None): AnalysisException = {
+    new AnalysisException(msg, line, startPosition, plan, cause)
+  }
 
   def notNullInvariantException(invariant: Invariant): Throwable = {
     new InvariantViolationException(s"Column ${UnresolvedAttribute(invariant.column).name}" +
@@ -91,6 +100,7 @@ object DeltaErrors
     new AnalysisException("Specifying static partitions in the partition spec is" +
       " currently not supported during inserts")
   }
+
 
   def operationNotSupportedException(
       operation: String, tableIdentifier: TableIdentifier): Throwable = {
@@ -602,6 +612,15 @@ abstract class DeltaConcurrentModificationException(message: String)
    */
   def conflictType: String = this.getClass.getSimpleName.stripSuffix("Exception")
 }
+
+/**
+ * Thrown when a concurrent transaction has written data after the current transaction read the
+ * table.
+ */
+class ConcurrentWriteException(
+    conflictingCommit: Option[CommitInfo]) extends DeltaConcurrentModificationException(
+  s"A concurrent transaction has written new data since the current transaction " +
+    s"read the table. Please try the operation again.", conflictingCommit)
 
 /**
  * Thrown when the metadata of the Delta table has changed between the time of read
