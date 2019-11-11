@@ -18,8 +18,10 @@ package org.apache.spark.sql.delta
 
 import java.io.{File, FileNotFoundException}
 
+import org.apache.spark.sql.delta.actions.{Action, FileAction}
 import org.apache.spark.sql.delta.files.TahoeLogFileIndex
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
+import org.apache.spark.sql.delta.util.FileNames
 import org.apache.hadoop.fs.{FileSystem, Path}
 
 import org.apache.spark.SparkException
@@ -30,11 +32,11 @@ import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRela
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.SQLConf.OPTIMIZER_METADATA_ONLY
-import org.apache.spark.sql.test.SharedSQLContext
+import org.apache.spark.sql.test.{SharedSparkSession, SQLTestUtils}
 import org.apache.spark.util.Utils
 
 class DeltaSuite extends QueryTest
-  with SharedSQLContext {
+  with SharedSparkSession  with SQLTestUtils {
 
   import testImplicits._
 
@@ -139,14 +141,14 @@ class DeltaSuite extends QueryTest
     val df = spark.read.format("delta").load(tempDir.toString)
 
     // Verify the correct partitioning schema is picked up
-    val hadoopdFsRelations = df.queryExecution.analyzed.collect {
+    val hadoopFsRelations = df.queryExecution.analyzed.collect {
       case LogicalRelation(baseRelation, _, _, _) if
       baseRelation.isInstanceOf[HadoopFsRelation] =>
         baseRelation.asInstanceOf[HadoopFsRelation]
     }
-    assert(hadoopdFsRelations.size === 1)
-    assert(hadoopdFsRelations.head.partitionSchema.exists(_.name == "is_odd"))
-    assert(hadoopdFsRelations.head.dataSchema.exists(_.name == "value"))
+    assert(hadoopFsRelations.size === 1)
+    assert(hadoopFsRelations.head.partitionSchema.exists(_.name == "is_odd"))
+    assert(hadoopFsRelations.head.dataSchema.exists(_.name == "value"))
 
     checkAnswer(df.where("is_odd = true"), Row(1, true) :: Nil)
     checkAnswer(df.where("is_odd IS NULL"), Row(null, null) :: Nil)
@@ -920,5 +922,56 @@ class DeltaSuite extends QueryTest
         .write.format("delta").partitionBy("id").saveAsTable("sc15200test")
       checkAnswer(spark.table("sc15200test"), Seq.empty)
     }
+  }
+
+  test("support for setting dataChange to false") {
+    val tempDir = Utils.createTempDir()
+
+    spark.range(100)
+      .write
+      .format("delta")
+      .save(tempDir.toString)
+
+    val df = spark.read.format("delta").load(tempDir.toString)
+
+    df
+      .write
+      .format("delta")
+      .mode("overwrite")
+      .option("dataChange", "false")
+      .save(tempDir.toString)
+
+    val deltaLog = DeltaLog.forTable(spark, tempDir)
+    val version = deltaLog.snapshot.version
+    val commitActions = deltaLog.store.read(FileNames.deltaFile(deltaLog.logPath, version))
+      .map(Action.fromJson)
+    val fileActions = commitActions.collect { case a: FileAction => a }
+
+     assert(fileActions.forall(!_.dataChange))
+  }
+
+  test("dataChange is by default set to true") {
+    val tempDir = Utils.createTempDir()
+
+    spark.range(100)
+      .write
+      .format("delta")
+      .save(tempDir.toString)
+
+    val df = spark.read.format("delta").load(tempDir.toString)
+
+    df
+      .write
+      .format("delta")
+      .mode("overwrite")
+      .save(tempDir.toString)
+
+    val deltaLog = DeltaLog.forTable(spark, tempDir)
+    val version = deltaLog.snapshot.version
+    val commitActions = deltaLog.store.read(FileNames.deltaFile(deltaLog.logPath, version))
+      .map(Action.fromJson)
+    val fileActions = commitActions.collect { case a: FileAction => a }
+
+    assert(fileActions.forall(_.dataChange))
   }
 }
